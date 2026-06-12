@@ -48,4 +48,12 @@ PYBIND11_MODULE(initialization_cpp, m) {
              py::arg("alpha_right") = 1.0f)
         .def("build", &VPTreeInit::build)
         .def("search", &VPTreeInit::search);
+
+    py::class_<StackedNSWInit, InitializationApproach>(m, "StackedNSWInit")
+        .def(py::init<int, int, int>(),
+             py::arg("M") = 16,
+             py::arg("ef_construction") = 200,
+             py::arg("ef") = 100)
+        .def("build", &StackedNSWInit::build)
+        .def("search", &StackedNSWInit::search);
 }

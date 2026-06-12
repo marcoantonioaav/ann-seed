@@ -427,3 +427,96 @@ size_t VPTreeInit::get_index_size() const {
     return index_size_;
 }
 
+// ---------------------------------------------------------
+// NMSLIB Stacked NSW Implementation
+// ---------------------------------------------------------
+// Reuses NmslibState (defined above in the VP-Tree section).
+
+StackedNSWInit::StackedNSWInit(int M, int ef_construction, int ef)
+    : M_(M), ef_construction_(ef_construction), ef_(ef), state_(new NmslibState()) {
+    static bool global_init = false;
+    if (!global_init) {
+        similarity::initLibrary(0, LIB_LOGNONE, nullptr);
+        global_init = true;
+    }
+    state_->library_initialized = true;
+}
+
+StackedNSWInit::~StackedNSWInit() {
+    if (state_->index) delete state_->index;
+    for (auto obj : state_->data) {
+        delete obj;
+    }
+    if (state_->space) delete state_->space;
+    delete state_;
+}
+
+void StackedNSWInit::build(const std::vector<std::vector<float>>& dataset) {
+    size_t rss_start = get_current_rss_bytes();
+    dataset_ = dataset;
+
+    if (dataset_.empty()) {
+        throw std::invalid_argument("Dataset cannot be empty.");
+    }
+
+    size_t num_points = dataset_.size();
+    size_t dims = dataset_[0].size();
+
+    state_->space = similarity::SpaceFactoryRegistry<float>::Instance().CreateSpace("l2", similarity::AnyParams());
+
+    for (size_t i = 0; i < num_points; ++i) {
+        state_->data.push_back(new similarity::Object(i, -1, dims * sizeof(float), dataset_[i].data()));
+    }
+
+    state_->index = similarity::MethodFactoryRegistry<float>::Instance().CreateMethod(
+        false, "hnsw", "l2", *state_->space, state_->data);
+
+    size_t rss_before_index = get_current_rss_bytes();
+    // skip_optimized_index=1 forces the unoptimized HnswNode structure, giving
+    // correct access to per-layer links during the modified layer-1 search.
+    state_->index->CreateIndex(similarity::AnyParams({
+        "M=" + std::to_string(M_),
+        "efConstruction=" + std::to_string(ef_construction_),
+        "skip_optimized_index=1"
+    }));
+    size_t rss_after_index = get_current_rss_bytes();
+
+    // Set search-time ef
+    state_->index->SetQueryTimeParams(similarity::AnyParams({
+        "ef=" + std::to_string(ef_)
+    }));
+
+    size_t rss_end = get_current_rss_bytes();
+
+    memory_usage_ = (rss_end > rss_start) ? (rss_end - rss_start) : calculate_dataset_memory(dataset_);
+    index_size_ = (rss_after_index > rss_before_index) ? (rss_after_index - rss_before_index) : 0;
+}
+
+std::vector<SearchResult> StackedNSWInit::search(const std::vector<float>& query, size_t k) {
+    similarity::Object* query_obj = new similarity::Object(-1, -1, query.size() * sizeof(float), query.data());
+    similarity::KNNQuery<float> knn_query(*state_->space, query_obj, k);
+
+    state_->index->Search(&knn_query);
+
+    distance_computations_ += knn_query.DistanceComputations();
+
+    std::vector<SearchResult> temp_results;
+    similarity::KNNQueue<float>* res_queue = knn_query.Result()->Clone();
+    while (!res_queue->Empty()) {
+        temp_results.push_back({(uint32_t)res_queue->TopObject()->id(), res_queue->TopDistance()});
+        res_queue->Pop();
+    }
+    delete res_queue;
+    delete query_obj;
+
+    std::reverse(temp_results.begin(), temp_results.end());
+    return temp_results;
+}
+
+size_t StackedNSWInit::get_memory_usage() const {
+    return memory_usage_;
+}
+
+size_t StackedNSWInit::get_index_size() const {
+    return index_size_;
+}

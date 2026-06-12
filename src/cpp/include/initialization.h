@@ -123,3 +123,20 @@ public:
     size_t get_memory_usage() const override;
     size_t get_index_size() const override;
 };
+
+class StackedNSWInit : public InitializationApproach {
+private:
+    int M_;
+    int ef_construction_;
+    int ef_;
+    NmslibState* state_;
+
+public:
+    StackedNSWInit(int M = 16, int ef_construction = 200, int ef = 100);
+    ~StackedNSWInit() override;
+
+    void build(const std::vector<std::vector<float>>& dataset) override;
+    std::vector<SearchResult> search(const std::vector<float>& query, size_t k) override;
+    size_t get_memory_usage() const override;
+    size_t get_index_size() const override;
+};

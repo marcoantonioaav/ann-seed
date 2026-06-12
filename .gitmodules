@@ -1,3 +1,4 @@
 [submodule "external/nmslib"]
 	path = external/nmslib
-	url = https://github.com/nmslib/nmslib.git
+	url = https://github.com/marcoantonioaav/nmslib.git
+	branch = Stacked-NSW
