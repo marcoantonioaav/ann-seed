@@ -2,3 +2,6 @@
 	path = external/nmslib
 	url = https://github.com/marcoantonioaav/nmslib.git
 	branch = Stacked-NSW
+[submodule "external/falconn"]
+	path = external/falconn
+	url = https://github.com/FALCONN-LIB/FALCONN.git
