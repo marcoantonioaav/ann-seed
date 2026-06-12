@@ -140,3 +140,22 @@ public:
     size_t get_memory_usage() const override;
     size_t get_index_size() const override;
 };
+
+struct LSHState;
+
+class LSHInit : public InitializationApproach {
+private:
+    int num_hash_tables_;
+    int num_hash_bits_;
+    int num_probes_;
+    LSHState* state_;
+
+public:
+    LSHInit(int num_hash_tables = 50, int num_hash_bits = 16, int num_probes = 100);
+    ~LSHInit() override;
+
+    void build(const std::vector<std::vector<float>>& dataset) override;
+    std::vector<SearchResult> search(const std::vector<float>& query, size_t k) override;
+    size_t get_memory_usage() const override;
+    size_t get_index_size() const override;
+};

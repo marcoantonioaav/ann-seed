@@ -520,3 +520,87 @@ size_t StackedNSWInit::get_memory_usage() const {
 size_t StackedNSWInit::get_index_size() const {
     return index_size_;
 }
+
+// ---------------------------------------------------------
+// FALCONN LSH Implementation
+// ---------------------------------------------------------
+#include <falconn/lsh_nn_table.h>
+
+struct LSHState {
+    std::vector<falconn::DenseVector<float>> falconn_data;
+    std::unique_ptr<falconn::LSHNearestNeighborTable<falconn::DenseVector<float>>> table;
+};
+
+LSHInit::LSHInit(int num_hash_tables, int num_hash_bits, int num_probes)
+    : num_hash_tables_(num_hash_tables), num_hash_bits_(num_hash_bits), num_probes_(num_probes), state_(new LSHState()) {}
+
+LSHInit::~LSHInit() {
+    delete state_;
+}
+
+void LSHInit::build(const std::vector<std::vector<float>>& dataset) {
+    size_t rss_start = get_current_rss_bytes();
+    dataset_ = dataset;
+    if (dataset_.empty()) {
+        throw std::invalid_argument("Dataset cannot be empty.");
+    }
+
+    size_t num_points = dataset_.size();
+    size_t dims = dataset_[0].size();
+
+    state_->falconn_data.resize(num_points);
+    for (size_t i = 0; i < num_points; ++i) {
+        state_->falconn_data[i] = Eigen::Map<const falconn::DenseVector<float>>(dataset_[i].data(), dims);
+    }
+
+    falconn::LSHConstructionParameters params;
+    params.dimension = dims;
+    params.lsh_family = falconn::LSHFamily::CrossPolytope;
+    params.distance_function = falconn::DistanceFunction::EuclideanSquared;
+    params.storage_hash_table = falconn::StorageHashTable::FlatHashTable;
+    params.l = num_hash_tables_;
+    params.num_setup_threads = 0;
+    params.num_rotations = 1;
+    
+    falconn::compute_number_of_hash_functions<falconn::DenseVector<float>>(num_hash_bits_, &params);
+
+    size_t rss_before_index = get_current_rss_bytes();
+    state_->table = falconn::construct_table<falconn::DenseVector<float>>(state_->falconn_data, params);
+    size_t rss_after_index = get_current_rss_bytes();
+
+    size_t rss_end = get_current_rss_bytes();
+    memory_usage_ = (rss_end > rss_start) ? (rss_end - rss_start) : calculate_dataset_memory(dataset_);
+    index_size_ = (rss_after_index > rss_before_index) ? (rss_after_index - rss_before_index) : 0;
+}
+
+std::vector<SearchResult> LSHInit::search(const std::vector<float>& query, size_t k) {
+    falconn::DenseVector<float> eigen_query = Eigen::Map<const falconn::DenseVector<float>>(const_cast<float*>(query.data()), query.size());
+    
+    auto query_obj = state_->table->construct_query_object(num_probes_);
+    std::vector<int32_t> candidates;
+    query_obj->find_k_nearest_neighbors(eigen_query, k, &candidates);
+    
+    falconn::QueryStatistics stats = query_obj->get_query_statistics();
+    distance_computations_ += stats.average_num_unique_candidates * stats.num_queries;
+
+    std::vector<SearchResult> results;
+    results.reserve(candidates.size());
+    for (int32_t idx : candidates) {
+        float dist = compute_l2_distance(dataset_[idx], query);
+        results.push_back({(uint32_t)idx, dist});
+    }
+
+    std::sort(results.begin(), results.end(), [](const SearchResult& a, const SearchResult& b) {
+        return a.distance < b.distance;
+    });
+
+    return results;
+}
+
+size_t LSHInit::get_memory_usage() const {
+    return memory_usage_;
+}
+
+size_t LSHInit::get_index_size() const {
+    return index_size_;
+}

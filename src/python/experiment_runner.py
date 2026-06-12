@@ -52,7 +52,8 @@ def run_experiment():
         ("t K-Means trees (t=1)", initialization_cpp.FlannKMeansInit(1, 32, 11, k_search)),
         ("t K-Means trees (t=5)", initialization_cpp.FlannKMeansInit(5, 32, 11, k_search)),
         ("VP-tree", initialization_cpp.VPTreeInit(8, 1.0, 1.0)),
-        ("Stacked NSW graphs", initialization_cpp.StackedNSWInit(16, 400, k_search))
+        ("Stacked NSW graphs", initialization_cpp.StackedNSWInit(16, 400, k_search)),
+        ("LSH", initialization_cpp.LSHInit(4, 20, 4))
     ]
     
     offline_results = []

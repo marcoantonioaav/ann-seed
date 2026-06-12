@@ -56,4 +56,12 @@ PYBIND11_MODULE(initialization_cpp, m) {
              py::arg("ef") = 100)
         .def("build", &StackedNSWInit::build)
         .def("search", &StackedNSWInit::search);
+
+    py::class_<LSHInit, InitializationApproach>(m, "LSHInit")
+        .def(py::init<int, int, int>(),
+             py::arg("num_hash_tables") = 50,
+             py::arg("num_hash_bits") = 16,
+             py::arg("num_probes") = 100)
+        .def("build", &LSHInit::build)
+        .def("search", &LSHInit::search);
 }

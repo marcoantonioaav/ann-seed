@@ -20,6 +20,9 @@ add_subdirectory(external/nmslib/similarity_search)
 target_include_directories(initialization_cpp PRIVATE 
     src/cpp/include 
     external/nmslib/similarity_search/include
+    external/falconn/src/include
+    external/falconn/external/eigen
+    external/falconn/external/simple-serializer
 )
 target_link_libraries(initialization_cpp PRIVATE flann_cpp lz4 NonMetricSpaceLib)
 
