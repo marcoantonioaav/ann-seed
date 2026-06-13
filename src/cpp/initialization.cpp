@@ -33,7 +33,9 @@ size_t calculate_dataset_memory(const std::vector<std::vector<float>>& dataset) 
     return total;
 }
 
-RandomPointsInit::RandomPointsInit(uint32_t seed) : gen_(seed) {}
+RandomPointsInit::RandomPointsInit(uint32_t seed, const std::string& metric) : gen_(seed) {
+    if (metric == "cosine") metric_ = DistanceMetric::COSINE;
+}
 
 void RandomPointsInit::build(const std::vector<std::vector<float>>& dataset) {
     dataset_ = dataset;
@@ -64,7 +66,7 @@ std::vector<SearchResult> RandomPointsInit::search(const std::vector<float>& que
     std::vector<SearchResult> results;
     results.reserve(k);
     for (uint32_t idx : sampled_indices) {
-        float dist = compute_l2_distance(dataset_[idx], query);
+        float dist = compute_distance(dataset_[idx], query);
         results.push_back({idx, dist});
     }
     
@@ -76,7 +78,9 @@ std::vector<SearchResult> RandomPointsInit::search(const std::vector<float>& que
     return results;
 }
 
-MedoidInit::MedoidInit() : medoid_index_(0) {}
+MedoidInit::MedoidInit(const std::string& metric) : medoid_index_(0) {
+    if (metric == "cosine") metric_ = DistanceMetric::COSINE;
+}
 
 void MedoidInit::build(const std::vector<std::vector<float>>& dataset) {
     dataset_ = dataset;
@@ -123,7 +127,7 @@ size_t MedoidInit::get_index_size() const {
 }
 
 std::vector<SearchResult> MedoidInit::search(const std::vector<float>& query, size_t k) {
-    float dist = compute_l2_distance(dataset_[medoid_index_], query);
+    float dist = compute_distance(dataset_[medoid_index_], query);
     return {{medoid_index_, dist}};
 }
 
@@ -138,8 +142,10 @@ struct FlannState {
     std::vector<std::unique_ptr<flann::Index<flann::L2<float>>>> kmeans_indexes;
 };
 
-FlannKDTreeInit::FlannKDTreeInit(int trees, int checks) 
-    : num_trees_(trees), checks_(checks), state_(new FlannState()) {}
+FlannKDTreeInit::FlannKDTreeInit(int trees, int checks, const std::string& metric) 
+    : num_trees_(trees), checks_(checks), state_(new FlannState()) {
+    if (metric == "cosine") metric_ = DistanceMetric::COSINE;
+}
 
 FlannKDTreeInit::~FlannKDTreeInit() {
     delete state_;
@@ -202,7 +208,8 @@ std::vector<SearchResult> FlannKDTreeInit::search(const std::vector<float>& quer
     results.reserve(k);
     for (size_t i = 0; i < k; ++i) {
         if (indices[i] >= 0) {
-            results.push_back({(uint32_t)indices[i], std::sqrt(dists[i])});
+            float final_dist = (metric_ == DistanceMetric::COSINE) ? (dists[i] / 2.0f) : std::sqrt(dists[i]);
+            results.push_back({(uint32_t)indices[i], final_dist});
         }
     }
 
@@ -221,8 +228,10 @@ size_t FlannKDTreeInit::get_index_size() const {
 // FLANN KMeans Tree Implementation
 // ---------------------------------------------------------
 
-FlannKMeansInit::FlannKMeansInit(int trees, int branching, int iterations, int checks) 
-    : num_trees_(trees), branching_(branching), iterations_(iterations), checks_(checks), state_(new FlannState()) {}
+FlannKMeansInit::FlannKMeansInit(int trees, int branching, int iterations, int checks, const std::string& metric) 
+    : num_trees_(trees), branching_(branching), iterations_(iterations), checks_(checks), state_(new FlannState()) {
+    if (metric == "cosine") metric_ = DistanceMetric::COSINE;
+}
 
 FlannKMeansInit::~FlannKMeansInit() {
     delete state_;
@@ -284,7 +293,7 @@ std::vector<SearchResult> FlannKMeansInit::search(const std::vector<float>& quer
         for (size_t i = 0; i < k; ++i) {
             if (indices[i] >= 0) {
                 uint32_t idx = (uint32_t)indices[i];
-                float d = std::sqrt(dists[i]);
+                float d = (metric_ == DistanceMetric::COSINE) ? (dists[i] / 2.0f) : std::sqrt(dists[i]);
                 if (merged_candidates.find(idx) == merged_candidates.end() || d < merged_candidates[idx]) {
                     merged_candidates[idx] = d;
                 }
@@ -339,8 +348,9 @@ struct NmslibState {
     NmslibState() : space(nullptr), index(nullptr), library_initialized(false) {}
 };
 
-VPTreeInit::VPTreeInit(int max_leaves_to_visit, float alpha_left, float alpha_right) 
+VPTreeInit::VPTreeInit(int max_leaves_to_visit, float alpha_left, float alpha_right, const std::string& metric) 
     : max_leaves_to_visit_(max_leaves_to_visit), alpha_left_(alpha_left), alpha_right_(alpha_right), state_(new NmslibState()) {
+    if (metric == "cosine") metric_ = DistanceMetric::COSINE;
     static bool global_init = false;
     if (!global_init) {
         similarity::initLibrary(0, LIB_LOGNONE, nullptr);
@@ -432,8 +442,9 @@ size_t VPTreeInit::get_index_size() const {
 // ---------------------------------------------------------
 // Reuses NmslibState (defined above in the VP-Tree section).
 
-StackedNSWInit::StackedNSWInit(int M, int ef_construction, int ef)
+StackedNSWInit::StackedNSWInit(int M, int ef_construction, int ef, const std::string& metric)
     : M_(M), ef_construction_(ef_construction), ef_(ef), state_(new NmslibState()) {
+    if (metric == "cosine") metric_ = DistanceMetric::COSINE;
     static bool global_init = false;
     if (!global_init) {
         similarity::initLibrary(0, LIB_LOGNONE, nullptr);
@@ -462,14 +473,15 @@ void StackedNSWInit::build(const std::vector<std::vector<float>>& dataset) {
     size_t num_points = dataset_.size();
     size_t dims = dataset_[0].size();
 
-    state_->space = similarity::SpaceFactoryRegistry<float>::Instance().CreateSpace("l2", similarity::AnyParams());
+    std::string space_name = (metric_ == DistanceMetric::COSINE) ? "cosinesimil" : "l2";
+    state_->space = similarity::SpaceFactoryRegistry<float>::Instance().CreateSpace(space_name, similarity::AnyParams());
 
     for (size_t i = 0; i < num_points; ++i) {
         state_->data.push_back(new similarity::Object(i, -1, dims * sizeof(float), dataset_[i].data()));
     }
 
     state_->index = similarity::MethodFactoryRegistry<float>::Instance().CreateMethod(
-        false, "hnsw", "l2", *state_->space, state_->data);
+        false, "hnsw", space_name, *state_->space, state_->data);
 
     size_t rss_before_index = get_current_rss_bytes();
     // skip_optimized_index=1 forces the unoptimized HnswNode structure, giving
@@ -531,8 +543,10 @@ struct LSHState {
     std::unique_ptr<falconn::LSHNearestNeighborTable<falconn::DenseVector<float>>> table;
 };
 
-LSHInit::LSHInit(int num_hash_tables, int num_hash_bits, int num_probes)
-    : num_hash_tables_(num_hash_tables), num_hash_bits_(num_hash_bits), num_probes_(num_probes), state_(new LSHState()) {}
+LSHInit::LSHInit(int num_hash_tables, int num_hash_bits, int num_probes, const std::string& metric)
+    : num_hash_tables_(num_hash_tables), num_hash_bits_(num_hash_bits), num_probes_(num_probes), state_(new LSHState()) {
+    if (metric == "cosine") metric_ = DistanceMetric::COSINE;
+}
 
 LSHInit::~LSHInit() {
     delete state_;
@@ -556,7 +570,11 @@ void LSHInit::build(const std::vector<std::vector<float>>& dataset) {
     falconn::LSHConstructionParameters params;
     params.dimension = dims;
     params.lsh_family = falconn::LSHFamily::CrossPolytope;
-    params.distance_function = falconn::DistanceFunction::EuclideanSquared;
+    if (metric_ == DistanceMetric::COSINE) {
+        params.distance_function = falconn::DistanceFunction::NegativeInnerProduct;
+    } else {
+        params.distance_function = falconn::DistanceFunction::EuclideanSquared;
+    }
     params.storage_hash_table = falconn::StorageHashTable::FlatHashTable;
     params.l = num_hash_tables_;
     params.num_setup_threads = 0;
@@ -586,7 +604,7 @@ std::vector<SearchResult> LSHInit::search(const std::vector<float>& query, size_
     std::vector<SearchResult> results;
     results.reserve(candidates.size());
     for (int32_t idx : candidates) {
-        float dist = compute_l2_distance(dataset_[idx], query);
+        float dist = compute_distance(dataset_[idx], query);
         results.push_back({(uint32_t)idx, dist});
     }
 

@@ -18,50 +18,54 @@ PYBIND11_MODULE(initialization_cpp, m) {
         .def("get_index_size", &InitializationApproach::get_index_size);
     
     py::class_<RandomPointsInit, InitializationApproach>(m, "RandomPointsInit")
-        .def(py::init<uint32_t>(), py::arg("seed") = 42)
+        .def(py::init<uint32_t, const std::string&>(), py::arg("seed") = 42, py::arg("metric") = "l2")
         .def("build", &RandomPointsInit::build)
         .def("search", &RandomPointsInit::search);
         
     py::class_<MedoidInit, InitializationApproach>(m, "MedoidInit")
-        .def(py::init<>())
+        .def(py::init<const std::string&>(), py::arg("metric") = "l2")
         .def("build", &MedoidInit::build)
         .def("search", &MedoidInit::search);
 
     py::class_<FlannKDTreeInit, InitializationApproach>(m, "FlannKDTreeInit")
-        .def(py::init<int, int>(), py::arg("trees") = 4, py::arg("checks") = 32)
+        .def(py::init<int, int, const std::string&>(), py::arg("trees") = 4, py::arg("checks") = 32, py::arg("metric") = "l2")
         .def("build", &FlannKDTreeInit::build)
         .def("search", &FlannKDTreeInit::search);
 
     py::class_<FlannKMeansInit, InitializationApproach>(m, "FlannKMeansInit")
-        .def(py::init<int, int, int, int>(), 
+        .def(py::init<int, int, int, int, const std::string&>(), 
              py::arg("trees") = 1, 
              py::arg("branching") = 32, 
              py::arg("iterations") = 11, 
-             py::arg("checks") = 32)
+             py::arg("checks") = 32,
+             py::arg("metric") = "l2")
         .def("build", &FlannKMeansInit::build)
         .def("search", &FlannKMeansInit::search);
 
     py::class_<VPTreeInit, InitializationApproach>(m, "VPTreeInit")
-        .def(py::init<int, float, float>(),
+        .def(py::init<int, float, float, const std::string&>(),
              py::arg("max_leaves_to_visit") = 1000,
              py::arg("alpha_left") = 1.0f,
-             py::arg("alpha_right") = 1.0f)
+             py::arg("alpha_right") = 1.0f,
+             py::arg("metric") = "l2")
         .def("build", &VPTreeInit::build)
         .def("search", &VPTreeInit::search);
 
     py::class_<StackedNSWInit, InitializationApproach>(m, "StackedNSWInit")
-        .def(py::init<int, int, int>(),
+        .def(py::init<int, int, int, const std::string&>(),
              py::arg("M") = 16,
              py::arg("ef_construction") = 200,
-             py::arg("ef") = 100)
+             py::arg("ef") = 100,
+             py::arg("metric") = "l2")
         .def("build", &StackedNSWInit::build)
         .def("search", &StackedNSWInit::search);
 
     py::class_<LSHInit, InitializationApproach>(m, "LSHInit")
-        .def(py::init<int, int, int>(),
+        .def(py::init<int, int, int, const std::string&>(),
              py::arg("num_hash_tables") = 50,
              py::arg("num_hash_bits") = 16,
-             py::arg("num_probes") = 100)
+             py::arg("num_probes") = 100,
+             py::arg("metric") = "l2")
         .def("build", &LSHInit::build)
         .def("search", &LSHInit::search);
 }
