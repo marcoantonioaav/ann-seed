@@ -27,18 +27,21 @@ def calculate_recall_at_k(found_indices: List[int], ground_truth_indices: List[i
         recalls[k] = intersection / k
     return recalls
 
-def calculate_mean_distance(found_indices: List[int], query: np.ndarray, dataset: np.ndarray) -> float:
+def calculate_mean_distance(distances: List[float]) -> float:
     """Calculates mean distance of found points to the query."""
-    if not found_indices:
+    if not distances:
         return 0.0
-    distances = [np.linalg.norm(dataset[idx] - query) for idx in found_indices]
     return float(np.mean(distances))
 
-def calculate_1nn_distance_diff(found_1nn_idx: int, gt_1nn_idx: int, query: np.ndarray, dataset: np.ndarray) -> float:
+def calculate_1nn_distance_diff(found_1nn_dist: float, gt_1nn_idx: int, query: np.ndarray, dataset, metric: str = "cosine") -> float:
     """Calculates the difference between the distance of the found 1-NN and the ground truth 1-NN to the query."""
-    found_dist = np.linalg.norm(dataset[found_1nn_idx] - query)
-    gt_dist = np.linalg.norm(dataset[gt_1nn_idx] - query)
-    return float(found_dist - gt_dist)
+    if metric == "cosine":
+        # Cosine distance = 1 - dot product (assuming L2 normalized)
+        gt_dist = 1.0 - np.dot(dataset[gt_1nn_idx], query)
+    else:
+        gt_dist = np.linalg.norm(dataset[gt_1nn_idx] - query)
+        
+    return float(abs(found_1nn_dist - gt_dist))
 
 class PerformanceTracker:
     """Tracks time for build and search operations."""

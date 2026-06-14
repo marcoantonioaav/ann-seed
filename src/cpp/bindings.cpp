@@ -15,6 +15,7 @@ PYBIND11_MODULE(initialization_cpp, m) {
         .def("build", &InitializationApproach::build)
         .def("add_items", &InitializationApproach::add_items)
         .def("build_index", &InitializationApproach::build_index)
+        .def("set_query_time_params", &InitializationApproach::set_query_time_params)
         .def("search", &InitializationApproach::search)
         .def("get_distance_computations", &InitializationApproach::get_distance_computations)
         .def("reset_distance_computations", &InitializationApproach::reset_distance_computations)

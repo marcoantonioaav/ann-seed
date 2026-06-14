@@ -5,6 +5,8 @@
 #include <utility>
 #include <cmath>
 #include <unordered_set>
+#include <string>
+#include <map>
 
 struct SearchResult {
     uint32_t index;
@@ -66,6 +68,8 @@ public:
     
     virtual void build_index() = 0;
     
+    virtual void set_query_time_params(const std::map<std::string, std::string>& params) {}
+    
     virtual std::vector<SearchResult> search(const std::vector<float>& query, size_t k) = 0;
 
     virtual size_t get_memory_usage() const = 0;
@@ -78,9 +82,11 @@ public:
 class RandomPointsInit : public InitializationApproach {
 private:
     std::mt19937 gen_;
+    size_t sample_size_ = 0;
 public:
     RandomPointsInit(uint32_t seed = 42, const std::string& metric = "l2");
     void build_index() override;
+    void set_query_time_params(const std::map<std::string, std::string>& params) override;
     std::vector<SearchResult> search(const std::vector<float>& query, size_t k) override;
     size_t get_memory_usage() const override;
     size_t get_index_size() const override;
@@ -110,6 +116,7 @@ public:
     ~FlannKDTreeInit() override;
 
     void build_index() override;
+    void set_query_time_params(const std::map<std::string, std::string>& params) override;
     std::vector<SearchResult> search(const std::vector<float>& query, size_t k) override;
     size_t get_memory_usage() const override;
     size_t get_index_size() const override;
@@ -128,6 +135,7 @@ public:
     ~FlannKMeansInit() override;
 
     void build_index() override;
+    void set_query_time_params(const std::map<std::string, std::string>& params) override;
     std::vector<SearchResult> search(const std::vector<float>& query, size_t k) override;
     size_t get_memory_usage() const override;
     size_t get_index_size() const override;
@@ -147,6 +155,7 @@ public:
     ~VPTreeInit() override;
 
     void build_index() override;
+    void set_query_time_params(const std::map<std::string, std::string>& params) override;
     std::vector<SearchResult> search(const std::vector<float>& query, size_t k) override;
     size_t get_memory_usage() const override;
     size_t get_index_size() const override;
@@ -164,6 +173,7 @@ public:
     ~StackedNSWInit() override;
 
     void build_index() override;
+    void set_query_time_params(const std::map<std::string, std::string>& params) override;
     std::vector<SearchResult> search(const std::vector<float>& query, size_t k) override;
     size_t get_memory_usage() const override;
     size_t get_index_size() const override;
@@ -183,6 +193,7 @@ public:
     ~LSHInit() override;
 
     void build_index() override;
+    void set_query_time_params(const std::map<std::string, std::string>& params) override;
     std::vector<SearchResult> search(const std::vector<float>& query, size_t k) override;
     size_t get_memory_usage() const override;
     size_t get_index_size() const override;

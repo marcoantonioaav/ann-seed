@@ -50,31 +50,46 @@ size_t RandomPointsInit::get_index_size() const {
     return 0; // Random points approach has no persistent index structure
 }
 
+void RandomPointsInit::set_query_time_params(const std::map<std::string, std::string>& params) {
+    if (params.count("sample_size")) {
+        sample_size_ = std::stoul(params.at("sample_size"));
+    }
+}
+
 std::vector<SearchResult> RandomPointsInit::search(const std::vector<float>& query, size_t k) {
     size_t num_points = dataset_.size();
     if (k > num_points) {
         throw std::invalid_argument("k cannot be larger than the dataset size.");
     }
     
-    // 1. Sample k random indices efficiently (O(k) expected time)
+    size_t current_sample = (sample_size_ > 0) ? sample_size_ : k;
+    if (current_sample > num_points) current_sample = num_points;
+    
+    // 1. Sample current_sample random indices efficiently
     std::unordered_set<uint32_t> sampled_indices;
     std::uniform_int_distribution<uint32_t> dist_gen(0, num_points - 1);
-    while (sampled_indices.size() < k) {
+    while (sampled_indices.size() < current_sample) {
         sampled_indices.insert(dist_gen(gen_));
     }
     
     // 2. Compute distances
     std::vector<SearchResult> results;
-    results.reserve(k);
+    results.reserve(current_sample);
     for (uint32_t idx : sampled_indices) {
         float dist = compute_distance(dataset_[idx], query);
         results.push_back(SearchResult{idx, dist});
     }
     
-    // 3. Sort by distance
+    distance_computations_ += current_sample;
+    
+    // 3. Sort by distance and return top k
     std::sort(results.begin(), results.end(), [](const SearchResult& a, const SearchResult& b) {
         return a.distance < b.distance;
     });
+    
+    if (results.size() > k) {
+        results.resize(k);
+    }
     
     return results;
 }
@@ -185,6 +200,10 @@ void FlannKDTreeInit::build_index() {
     index_size_ = (rss_after_index > rss_before_index) ? (rss_after_index - rss_before_index) : 0;
 }
 
+void FlannKDTreeInit::set_query_time_params(const std::map<std::string, std::string>& params) {
+    if (params.count("checks")) checks_ = std::stoi(params.at("checks"));
+}
+
 std::vector<SearchResult> FlannKDTreeInit::search(const std::vector<float>& query, size_t k) {
     size_t dims = query.size();
     std::vector<float> query_copy = query;
@@ -269,6 +288,10 @@ void FlannKMeansInit::build_index() {
     
     memory_usage_ = (rss_end > rss_start) ? (rss_end - rss_start) : calculate_dataset_memory(dataset_);
     index_size_ = (rss_after_index > rss_before_index) ? (rss_after_index - rss_before_index) : 0;
+}
+
+void FlannKMeansInit::set_query_time_params(const std::map<std::string, std::string>& params) {
+    if (params.count("checks")) checks_ = std::stoi(params.at("checks"));
 }
 
 std::vector<SearchResult> FlannKMeansInit::search(const std::vector<float>& query, size_t k) {
@@ -397,9 +420,27 @@ void VPTreeInit::build_index() {
     size_t rss_after_index = get_current_rss_bytes();
 
     size_t rss_end = get_current_rss_bytes();
+    if (rss_end > rss_start) {
+        index_size_ = (rss_end > rss_before_index) ? (rss_end - rss_before_index) : 0;
+        memory_usage_ = rss_end - rss_start;
+    } else {
+        memory_usage_ = calculate_dataset_memory(dataset_);
+        index_size_ = 0;
+    }
+}
 
-    memory_usage_ = (rss_end > rss_start) ? (rss_end - rss_start) : calculate_dataset_memory(dataset_);
-    index_size_ = (rss_after_index > rss_before_index) ? (rss_after_index - rss_before_index) : 0;
+void VPTreeInit::set_query_time_params(const std::map<std::string, std::string>& params) {
+    if (params.count("max_leaves_to_visit")) max_leaves_to_visit_ = std::stoi(params.at("max_leaves_to_visit"));
+    if (params.count("alpha_left")) alpha_left_ = std::stof(params.at("alpha_left"));
+    if (params.count("alpha_right")) alpha_right_ = std::stof(params.at("alpha_right"));
+    
+    if (state_->index) {
+        state_->index->SetQueryTimeParams(similarity::AnyParams({
+            "maxLeavesToVisit=" + std::to_string(max_leaves_to_visit_),
+            "alphaLeft=" + std::to_string(alpha_left_),
+            "alphaRight=" + std::to_string(alpha_right_)
+        }));
+    }
 }
 
 std::vector<SearchResult> VPTreeInit::search(const std::vector<float>& query, size_t k) {
@@ -495,9 +536,23 @@ void StackedNSWInit::build_index() {
     }));
 
     size_t rss_end = get_current_rss_bytes();
+    if (rss_end > rss_start) {
+        index_size_ = (rss_end > rss_before_index) ? (rss_end - rss_before_index) : 0;
+        memory_usage_ = rss_end - rss_start;
+    } else {
+        memory_usage_ = calculate_dataset_memory(dataset_);
+        index_size_ = 0;
+    }
+}
 
-    memory_usage_ = (rss_end > rss_start) ? (rss_end - rss_start) : calculate_dataset_memory(dataset_);
-    index_size_ = (rss_after_index > rss_before_index) ? (rss_after_index - rss_before_index) : 0;
+void StackedNSWInit::set_query_time_params(const std::map<std::string, std::string>& params) {
+    if (params.count("ef")) ef_ = std::stoi(params.at("ef"));
+    
+    if (state_->index) {
+        state_->index->SetQueryTimeParams(similarity::AnyParams({
+            "efSearch=" + std::to_string(ef_)
+        }));
+    }
 }
 
 std::vector<SearchResult> StackedNSWInit::search(const std::vector<float>& query, size_t k) {
@@ -537,6 +592,8 @@ size_t StackedNSWInit::get_index_size() const {
 struct LSHState {
     std::vector<falconn::DenseVector<float>> falconn_data;
     std::unique_ptr<falconn::LSHNearestNeighborTable<falconn::DenseVector<float>>> table;
+    std::unique_ptr<falconn::LSHNearestNeighborQuery<falconn::DenseVector<float>, int32_t>> query_obj;
+    size_t prev_total_comps = 0;
 };
 
 LSHInit::LSHInit(int num_hash_tables, int num_hash_bits, int num_probes, const std::string& metric)
@@ -579,22 +636,46 @@ void LSHInit::build_index() {
 
     size_t rss_before_index = get_current_rss_bytes();
     state_->table = falconn::construct_table<falconn::DenseVector<float>>(state_->falconn_data, params);
+    if (state_->table) {
+        state_->query_obj = state_->table->construct_query_object(num_probes_);
+    }
     size_t rss_after_index = get_current_rss_bytes();
 
     size_t rss_end = get_current_rss_bytes();
-    memory_usage_ = (rss_end > rss_start) ? (rss_end - rss_start) : calculate_dataset_memory(dataset_);
-    index_size_ = (rss_after_index > rss_before_index) ? (rss_after_index - rss_before_index) : 0;
+    if (rss_end > rss_start) {
+        index_size_ = (rss_end > rss_before_index) ? (rss_end - rss_before_index) : 0;
+        memory_usage_ = rss_end - rss_start;
+    } else {
+        memory_usage_ = calculate_dataset_memory(dataset_);
+        index_size_ = 0;
+    }
+}
+
+void LSHInit::set_query_time_params(const std::map<std::string, std::string>& params) {
+    if (params.count("num_probes")) {
+        num_probes_ = std::stoi(params.at("num_probes"));
+        if (state_->query_obj) {
+            // FALCONN does not expose set_num_probes on LSHNearestNeighborTable,
+            // but the query object has it (or we can just reconstruct it).
+            // Actually, we can just reconstruct it to be safe and reset stats.
+            state_->query_obj = state_->table->construct_query_object(num_probes_);
+            state_->prev_total_comps = 0;
+        }
+    }
 }
 
 std::vector<SearchResult> LSHInit::search(const std::vector<float>& query, size_t k) {
     falconn::DenseVector<float> eigen_query = Eigen::Map<const falconn::DenseVector<float>>(const_cast<float*>(query.data()), query.size());
     
-    auto query_obj = state_->table->construct_query_object(num_probes_);
     std::vector<int32_t> candidates;
-    query_obj->find_k_nearest_neighbors(eigen_query, k, &candidates);
-    
-    falconn::QueryStatistics stats = query_obj->get_query_statistics();
-    distance_computations_ += stats.average_num_unique_candidates * stats.num_queries;
+    if (state_->query_obj) {
+        state_->query_obj->find_k_nearest_neighbors(eigen_query, k, &candidates);
+        
+        falconn::QueryStatistics stats = state_->query_obj->get_query_statistics();
+        size_t current_total = stats.average_num_unique_candidates * stats.num_queries;
+        distance_computations_ += (current_total - state_->prev_total_comps);
+        state_->prev_total_comps = current_total;
+    }
 
     std::vector<SearchResult> results;
     results.reserve(candidates.size());
