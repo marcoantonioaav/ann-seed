@@ -1,4 +1,4 @@
-# Seed ANN
+# ANN Seed
 
 Comparison of seed selection strategies for graph-based ANN search.
 
