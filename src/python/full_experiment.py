@@ -153,6 +153,17 @@ def run_dataset_experiment(dataset_name, corpus_path, queries_path, output_dir, 
             "query_params": [
                 ("Medoid", {})
             ]
+        },
+        "HVS": {
+            "constructor": lambda: initialization_cpp.HVSInit(1, 0.5, 100, "cosine"),
+            "query_params": [
+                ("HVS (ef_search=10)", {"ef_search": "10"}),
+                ("HVS (ef_search=50)", {"ef_search": "50"}),
+                ("HVS (ef_search=100)", {"ef_search": "100"}),
+                ("HVS (ef_search=200)", {"ef_search": "200"}),
+                ("HVS (ef_search=500)", {"ef_search": "500"}),
+                ("HVS (ef_search=1000)", {"ef_search": "1000"})
+            ]
         }
     }
     

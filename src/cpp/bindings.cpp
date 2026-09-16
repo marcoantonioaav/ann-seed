@@ -59,4 +59,12 @@ PYBIND11_MODULE(initialization_cpp, m) {
              py::arg("num_hash_bits") = 16,
              py::arg("num_probes") = 100,
              py::arg("metric") = "l2");
+
+    py::class_<HVSInit, InitializationApproach>(m, "HVSInit")
+        .def(py::init<int, float, int, const std::string&>(),
+             py::arg("levels") = 1,
+             py::arg("delta") = 0.5f,
+             py::arg("ef_search") = 1000,
+             py::arg("metric") = "l2");
 }
+

@@ -699,3 +699,86 @@ size_t LSHInit::get_memory_usage() const {
 size_t LSHInit::get_index_size() const {
     return index_size_;
 }
+
+// ---------------------------------------------------------
+// HVS (Hierarchical Voronoi Structure) Implementation
+// ---------------------------------------------------------
+#include "hvs_index.h"
+
+HVSInit::HVSInit(int levels, float delta, int ef_search, const std::string& metric)
+    : levels_(levels), delta_(delta), ef_search_(ef_search), index_(nullptr) {
+    if (metric == "cosine") metric_ = DistanceMetric::COSINE;
+}
+
+HVSInit::~HVSInit() {
+    if (index_) {
+        delete index_;
+        index_ = nullptr;
+    }
+}
+
+void HVSInit::build_index() {
+    size_t rss_start = get_current_rss_bytes();
+    if (dataset_.empty()) {
+        throw std::invalid_argument("Dataset cannot be empty.");
+    }
+
+    size_t num_points = dataset_.size();
+    size_t dims = dataset_[0].size();
+
+    hvs::MetricType hvs_metric = (metric_ == DistanceMetric::COSINE) ? hvs::MetricType::COSINE : hvs::MetricType::L2;
+
+    if (index_) delete index_;
+    index_ = new hvs::HVSIndex(levels_, delta_, hvs_metric);
+
+    size_t rss_before_index = get_current_rss_bytes();
+    bool success = index_->build(dataset_);
+    if (!success) {
+        throw std::runtime_error("Failed to build HVS index.");
+    }
+    size_t rss_after_index = get_current_rss_bytes();
+
+    size_t rss_end = get_current_rss_bytes();
+    if (rss_end > rss_start) {
+        index_size_ = (rss_end > rss_before_index) ? (rss_end - rss_before_index) : 0;
+        memory_usage_ = rss_end - rss_start;
+    } else {
+        memory_usage_ = calculate_dataset_memory(dataset_);
+        index_size_ = 0;
+    }
+}
+
+void HVSInit::set_query_time_params(const std::map<std::string, std::string>& params) {
+    if (params.count("ef_search")) ef_search_ = std::stoi(params.at("ef_search"));
+    if (params.count("ef")) ef_search_ = std::stoi(params.at("ef"));
+}
+
+std::vector<SearchResult> HVSInit::search(const std::vector<float>& query, size_t k) {
+    if (!index_) {
+        throw std::runtime_error("HVS index has not been built.");
+    }
+
+    hvs::QueryResult res = index_->search_query(query.data(), k, ef_search_);
+    distance_computations_ += res.distance_computations;
+
+    std::vector<SearchResult> results;
+    results.reserve(res.neighbor_ids.size());
+    for (size_t i = 0; i < res.neighbor_ids.size(); ++i) {
+        float dist = res.distances[i];
+        if (metric_ == DistanceMetric::EUCLIDEAN) {
+            dist = std::sqrt(dist);
+        }
+        results.push_back(SearchResult{(uint32_t)res.neighbor_ids[i], dist});
+    }
+
+    return results;
+}
+
+size_t HVSInit::get_memory_usage() const {
+    return memory_usage_;
+}
+
+size_t HVSInit::get_index_size() const {
+    return index_size_;
+}
+

@@ -12,6 +12,7 @@ find_package(pybind11 REQUIRED)
 pybind11_add_module(initialization_cpp 
     src/cpp/initialization.cpp
     src/cpp/bindings.cpp
+    external/hvs/hnsw/hvs_index.cpp
 )
 # Add NMSLIB
 set(WITHOUT_TESTS ON)
@@ -23,6 +24,7 @@ target_include_directories(initialization_cpp PRIVATE
     external/falconn/src/include
     external/falconn/external/eigen
     external/falconn/external/simple-serializer
+    external/hvs/hnsw
 )
 target_link_libraries(initialization_cpp PRIVATE flann_cpp lz4 NonMetricSpaceLib)
 

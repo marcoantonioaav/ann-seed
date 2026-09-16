@@ -198,3 +198,24 @@ public:
     size_t get_memory_usage() const override;
     size_t get_index_size() const override;
 };
+
+namespace hvs { class HVSIndex; }
+
+class HVSInit : public InitializationApproach {
+private:
+    int levels_;
+    float delta_;
+    int ef_search_;
+    hvs::HVSIndex* index_ = nullptr;
+
+public:
+    HVSInit(int levels = 1, float delta = 0.5f, int ef_search = 1000, const std::string& metric = "l2");
+    ~HVSInit() override;
+
+    void build_index() override;
+    void set_query_time_params(const std::map<std::string, std::string>& params) override;
+    std::vector<SearchResult> search(const std::vector<float>& query, size_t k) override;
+    size_t get_memory_usage() const override;
+    size_t get_index_size() const override;
+};
+

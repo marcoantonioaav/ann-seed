@@ -50,6 +50,7 @@ def run_experiment():
         ("VP-tree", initialization_cpp.VPTreeInit(50, 2.0, 2.0, "cosine")),
         ("Stacked NSW", initialization_cpp.StackedNSWInit(16, 200, 10, "cosine")),
         ("LSH", initialization_cpp.LSHInit(10, 16, 10, "cosine")),
+        ("HVS", initialization_cpp.HVSInit(1, 0.5, 100, "cosine")),
         ("KD-trees", initialization_cpp.FlannKDTreeInit(4, 100, "cosine")),
         ("K-Means trees", initialization_cpp.FlannKMeansInit(1, 16, 2, 100, "cosine"))
     ]
