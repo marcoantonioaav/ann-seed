@@ -782,3 +782,100 @@ size_t HVSInit::get_index_size() const {
     return index_size_;
 }
 
+// ---------------------------------------------------------
+// LSB-Tree (LSH-APG) Implementation
+// ---------------------------------------------------------
+#include "lsb/LSBTree.h"
+
+LSBTreeInit::LSBTreeInit(int L, int K, float W, const std::string& metric)
+    : L_(L), K_(K), W_(W), tree_(nullptr) {
+    if (metric == "cosine") metric_ = DistanceMetric::COSINE;
+}
+
+LSBTreeInit::~LSBTreeInit() {
+    if (tree_) {
+        delete tree_;
+        tree_ = nullptr;
+    }
+}
+
+void LSBTreeInit::build_index() {
+    size_t rss_start = get_current_rss_bytes();
+    if (dataset_.empty()) {
+        throw std::invalid_argument("Dataset cannot be empty.");
+    }
+
+    size_t num_points = dataset_.size();
+    size_t dims = dataset_[0].size();
+
+    lsb::Parameters params;
+    params.N = static_cast<uint32_t>(num_points);
+    params.dim = static_cast<uint32_t>(dims);
+    params.L = static_cast<uint32_t>(L_);
+    params.K = static_cast<uint32_t>(K_);
+    params.W = W_;
+
+    lsb::MetricType lsb_metric = (metric_ == DistanceMetric::COSINE) ? lsb::MetricType::COSINE : lsb::MetricType::EUCLIDEAN;
+
+    if (tree_) delete tree_;
+    tree_ = new lsb::LSBTree(params, lsb_metric);
+
+    // Flatten dataset for lsb::LSBTree::fit (and normalize in-place if COSINE metric)
+    std::vector<float> flat_dataset(num_points * dims);
+    if (metric_ == DistanceMetric::COSINE) {
+        for (size_t i = 0; i < num_points; ++i) {
+            lsb::Metric::normalize(flat_dataset.data() + i * dims, dataset_[i].data(), dims);
+        }
+    } else {
+        for (size_t i = 0; i < num_points; ++i) {
+            std::copy(dataset_[i].begin(), dataset_[i].end(), flat_dataset.begin() + i * dims);
+        }
+    }
+
+    size_t rss_before_index = get_current_rss_bytes();
+    tree_->fit(flat_dataset.data(), params.N, params.dim, (metric_ == DistanceMetric::COSINE));
+    size_t rss_after_index = get_current_rss_bytes();
+
+    size_t rss_end = get_current_rss_bytes();
+    if (rss_end > rss_start) {
+        index_size_ = (rss_end > rss_before_index) ? (rss_end - rss_before_index) : 0;
+        memory_usage_ = rss_end - rss_start;
+    } else {
+        memory_usage_ = calculate_dataset_memory(dataset_);
+        index_size_ = 0;
+    }
+}
+
+void LSBTreeInit::set_query_time_params(const std::map<std::string, std::string>& params) {
+    if (params.count("L")) L_ = std::stoi(params.at("L"));
+    if (params.count("K")) K_ = std::stoi(params.at("K"));
+    if (params.count("W")) W_ = std::stof(params.at("W"));
+}
+
+std::vector<SearchResult> LSBTreeInit::search(const std::vector<float>& query, size_t k) {
+    if (!tree_) {
+        throw std::runtime_error("LSBTree index has not been built.");
+    }
+
+    lsb::QueryStats stats;
+    std::vector<lsb::Neighbor> neighbors = tree_->query(query.data(), static_cast<uint32_t>(k), &stats);
+    distance_computations_ += stats.dist_cmps;
+
+    std::vector<SearchResult> results;
+    results.reserve(neighbors.size());
+    for (const auto& n : neighbors) {
+        results.push_back(SearchResult{n.id, n.distance});
+    }
+
+    return results;
+}
+
+size_t LSBTreeInit::get_memory_usage() const {
+    return memory_usage_;
+}
+
+size_t LSBTreeInit::get_index_size() const {
+    return index_size_;
+}
+
+

@@ -164,6 +164,15 @@ def run_dataset_experiment(dataset_name, corpus_path, queries_path, output_dir, 
                 ("HVS (ef_search=500)", {"ef_search": "500"}),
                 ("HVS (ef_search=1000)", {"ef_search": "1000"})
             ]
+        },
+        "LSB-Tree": {
+            "constructor": lambda: initialization_cpp.LSBTreeInit(10, 10, 1.0, "cosine"),
+            "query_params": [
+                ("LSB-Tree (L=5)", {"L": "5"}),
+                ("LSB-Tree (L=10)", {"L": "10"}),
+                ("LSB-Tree (L=20)", {"L": "20"}),
+                ("LSB-Tree (L=50)", {"L": "50"})
+            ]
         }
     }
     

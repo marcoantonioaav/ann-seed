@@ -13,6 +13,8 @@ pybind11_add_module(initialization_cpp
     src/cpp/initialization.cpp
     src/cpp/bindings.cpp
     external/hvs/hnsw/hvs_index.cpp
+    external/lsh_apg/cppCode/LSH-APG/src/LSBTree.cpp
+    external/lsh_apg/cppCode/LSH-APG/src/Metric.cpp
 )
 # Add NMSLIB
 set(WITHOUT_TESTS ON)
@@ -25,8 +27,11 @@ target_include_directories(initialization_cpp PRIVATE
     external/falconn/external/eigen
     external/falconn/external/simple-serializer
     external/hvs/hnsw
+    external/lsh_apg/cppCode/LSH-APG/include
+    external/lsh_apg/cppCode/LSH-APG/src
 )
 target_link_libraries(initialization_cpp PRIVATE flann_cpp lz4 NonMetricSpaceLib)
+target_compile_options(initialization_cpp PRIVATE -mavx -mavx2 -mfma -march=native -Ofast)
 
 # Set output directory so the module is found automatically by the Python scripts
 set_target_properties(initialization_cpp PROPERTIES 

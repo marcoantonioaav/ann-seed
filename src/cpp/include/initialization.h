@@ -219,3 +219,24 @@ public:
     size_t get_index_size() const override;
 };
 
+namespace lsb { class LSBTree; }
+
+class LSBTreeInit : public InitializationApproach {
+private:
+    int L_;
+    int K_;
+    float W_;
+    lsb::LSBTree* tree_ = nullptr;
+
+public:
+    LSBTreeInit(int L = 10, int K = 10, float W = 1.0f, const std::string& metric = "l2");
+    ~LSBTreeInit() override;
+
+    void build_index() override;
+    void set_query_time_params(const std::map<std::string, std::string>& params) override;
+    std::vector<SearchResult> search(const std::vector<float>& query, size_t k) override;
+    size_t get_memory_usage() const override;
+    size_t get_index_size() const override;
+};
+
+

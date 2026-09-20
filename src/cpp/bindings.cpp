@@ -66,5 +66,13 @@ PYBIND11_MODULE(initialization_cpp, m) {
              py::arg("delta") = 0.5f,
              py::arg("ef_search") = 1000,
              py::arg("metric") = "l2");
+
+    py::class_<LSBTreeInit, InitializationApproach>(m, "LSBTreeInit")
+        .def(py::init<int, int, float, const std::string&>(),
+             py::arg("L") = 10,
+             py::arg("K") = 10,
+             py::arg("W") = 1.0f,
+             py::arg("metric") = "l2");
 }
+
 
