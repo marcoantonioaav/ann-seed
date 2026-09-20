@@ -8,3 +8,6 @@
 [submodule "external/hvs"]
 	path = external/hvs
 	url = https://github.com/marcoantonioaav/hvs
+[submodule "external/lsh_apg"]
+	path = external/lsh_apg
+	url = https://github.com/marcoantonioaav/LSH-APG
