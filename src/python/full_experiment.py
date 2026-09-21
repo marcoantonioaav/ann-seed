@@ -157,21 +157,26 @@ def run_dataset_experiment(dataset_name, corpus_path, queries_path, output_dir, 
         "HVS": {
             "constructor": lambda: initialization_cpp.HVSInit(1, 0.5, 100, "cosine"),
             "query_params": [
-                ("HVS (ef_search=10)", {"ef_search": "10"}),
-                ("HVS (ef_search=50)", {"ef_search": "50"}),
                 ("HVS (ef_search=100)", {"ef_search": "100"}),
-                ("HVS (ef_search=200)", {"ef_search": "200"}),
                 ("HVS (ef_search=500)", {"ef_search": "500"}),
-                ("HVS (ef_search=1000)", {"ef_search": "1000"})
+                ("HVS (ef_search=1000)", {"ef_search": "1000"}),
+                ("HVS (ef_search=2000)", {"ef_search": "2000"}),
+                ("HVS (ef_search=5000)", {"ef_search": "5000"}),
+                ("HVS (ef_search=10000)", {"ef_search": "10000"}),
+                ("HVS (ef_search=20000)", {"ef_search": "20000"}),
+                ("HVS (ef_search=50000)", {"ef_search": "50000"})
             ]
         },
         "LSB-Tree": {
             "constructor": lambda: initialization_cpp.LSBTreeInit(10, 10, 1.0, "cosine"),
             "query_params": [
-                ("LSB-Tree (L=5)", {"L": "5"}),
-                ("LSB-Tree (L=10)", {"L": "10"}),
-                ("LSB-Tree (L=20)", {"L": "20"}),
-                ("LSB-Tree (L=50)", {"L": "50"})
+                ("LSB-Tree (candidates=100)", {"max_candidates": "100"}),
+                ("LSB-Tree (candidates=500)", {"max_candidates": "500"}),
+                ("LSB-Tree (candidates=1000)", {"max_candidates": "1000"}),
+                ("LSB-Tree (candidates=2000)", {"max_candidates": "2000"}),
+                ("LSB-Tree (candidates=5000)", {"max_candidates": "5000"}),
+                ("LSB-Tree (candidates=10000)", {"max_candidates": "10000"}),
+                ("LSB-Tree (candidates=50000)", {"max_candidates": "50000"})
             ]
         }
     }

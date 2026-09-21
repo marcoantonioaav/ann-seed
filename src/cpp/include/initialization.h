@@ -226,6 +226,8 @@ private:
     int L_;
     int K_;
     float W_;
+    uint32_t max_candidates_ = 0;
+    std::vector<float> flat_dataset_;
     lsb::LSBTree* tree_ = nullptr;
 
 public:

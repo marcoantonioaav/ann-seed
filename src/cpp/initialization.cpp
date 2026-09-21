@@ -820,20 +820,24 @@ void LSBTreeInit::build_index() {
     if (tree_) delete tree_;
     tree_ = new lsb::LSBTree(params, lsb_metric);
 
-    // Flatten dataset for lsb::LSBTree::fit (and normalize in-place if COSINE metric)
-    std::vector<float> flat_dataset(num_points * dims);
+    // Flatten dataset into flat_dataset_ member variable so dataset_ptr_ remains valid during querying
+    flat_dataset_.resize(num_points * dims);
     if (metric_ == DistanceMetric::COSINE) {
         for (size_t i = 0; i < num_points; ++i) {
-            lsb::Metric::normalize(flat_dataset.data() + i * dims, dataset_[i].data(), dims);
+            lsb::Metric::normalize(flat_dataset_.data() + i * dims, dataset_[i].data(), dims);
         }
     } else {
         for (size_t i = 0; i < num_points; ++i) {
-            std::copy(dataset_[i].begin(), dataset_[i].end(), flat_dataset.begin() + i * dims);
+            std::copy(dataset_[i].begin(), dataset_[i].end(), flat_dataset_.data() + i * dims);
         }
     }
 
+    // Free original non-contiguous 2D dataset_ vectors
+    dataset_.clear();
+    dataset_.shrink_to_fit();
+
     size_t rss_before_index = get_current_rss_bytes();
-    tree_->fit(flat_dataset.data(), params.N, params.dim, (metric_ == DistanceMetric::COSINE));
+    tree_->fit(flat_dataset_.data(), params.N, params.dim, true);
     size_t rss_after_index = get_current_rss_bytes();
 
     size_t rss_end = get_current_rss_bytes();
@@ -841,7 +845,7 @@ void LSBTreeInit::build_index() {
         index_size_ = (rss_end > rss_before_index) ? (rss_end - rss_before_index) : 0;
         memory_usage_ = rss_end - rss_start;
     } else {
-        memory_usage_ = calculate_dataset_memory(dataset_);
+        memory_usage_ = flat_dataset_.size() * sizeof(float);
         index_size_ = 0;
     }
 }
@@ -850,6 +854,8 @@ void LSBTreeInit::set_query_time_params(const std::map<std::string, std::string>
     if (params.count("L")) L_ = std::stoi(params.at("L"));
     if (params.count("K")) K_ = std::stoi(params.at("K"));
     if (params.count("W")) W_ = std::stof(params.at("W"));
+    if (params.count("max_candidates")) max_candidates_ = std::stoul(params.at("max_candidates"));
+    if (params.count("candidates")) max_candidates_ = std::stoul(params.at("candidates"));
 }
 
 std::vector<SearchResult> LSBTreeInit::search(const std::vector<float>& query, size_t k) {
@@ -858,7 +864,7 @@ std::vector<SearchResult> LSBTreeInit::search(const std::vector<float>& query, s
     }
 
     lsb::QueryStats stats;
-    std::vector<lsb::Neighbor> neighbors = tree_->query(query.data(), static_cast<uint32_t>(k), &stats);
+    std::vector<lsb::Neighbor> neighbors = tree_->query(query.data(), static_cast<uint32_t>(k), &stats, max_candidates_);
     distance_computations_ += stats.dist_cmps;
 
     std::vector<SearchResult> results;
