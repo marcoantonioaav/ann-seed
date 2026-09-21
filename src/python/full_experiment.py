@@ -145,6 +145,8 @@ def run_dataset_experiment(dataset_name, corpus_path, queries_path, output_dir, 
             "query_params": [
                 ("Random Points (sample=100)", {"sample_size": "100"}),
                 ("Random Points (sample=1000)", {"sample_size": "1000"}),
+                ("Random Points (sample=2000)", {"sample_size": "2000"}),
+                ("Random Points (sample=5000)", {"sample_size": "5000"}),
                 ("Random Points (sample=10000)", {"sample_size": "10000"})
             ]
         },
@@ -157,7 +159,6 @@ def run_dataset_experiment(dataset_name, corpus_path, queries_path, output_dir, 
         "HVS": {
             "constructor": lambda: initialization_cpp.HVSInit(1, 0.5, 100, "cosine"),
             "query_params": [
-                ("HVS (ef_search=100)", {"ef_search": "100"}),
                 ("HVS (ef_search=500)", {"ef_search": "500"}),
                 ("HVS (ef_search=1000)", {"ef_search": "1000"}),
                 ("HVS (ef_search=2000)", {"ef_search": "2000"}),

@@ -36,15 +36,11 @@ protected:
     float compute_cosine_distance(const std::vector<float>& v1, const std::vector<float>& v2) const {
         distance_computations_++;
         float dot = 0.0f;
-        float norm1 = 0.0f;
-        float norm2 = 0.0f;
         for (size_t i = 0; i < v1.size(); ++i) {
             dot += v1[i] * v2[i];
-            norm1 += v1[i] * v1[i];
-            norm2 += v2[i] * v2[i];
         }
-        if (norm1 == 0.0f || norm2 == 0.0f) return 1.0f;
-        return 1.0f - (dot / (std::sqrt(norm1) * std::sqrt(norm2)));
+        float dist = 1.0f - dot;
+        return (dist < 0.0f) ? 0.0f : dist;
     }
 
     float compute_distance(const std::vector<float>& v1, const std::vector<float>& v2) const {
@@ -59,6 +55,16 @@ public:
     
     virtual void build(const std::vector<std::vector<float>>& dataset) {
         dataset_ = dataset;
+        if (metric_ == DistanceMetric::COSINE) {
+            for (auto& vec : dataset_) {
+                float sum_sq = 0.0f;
+                for (float x : vec) sum_sq += x * x;
+                if (sum_sq > 0.0f) {
+                    float inv_norm = 1.0f / std::sqrt(sum_sq);
+                    for (float& x : vec) x *= inv_norm;
+                }
+            }
+        }
         build_index();
     }
     

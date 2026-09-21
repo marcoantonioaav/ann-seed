@@ -65,6 +65,19 @@ std::vector<SearchResult> RandomPointsInit::search(const std::vector<float>& que
     size_t current_sample = (sample_size_ > 0) ? sample_size_ : k;
     if (current_sample > num_points) current_sample = num_points;
     
+    std::vector<float> q_norm;
+    const std::vector<float>* q_ptr = &query;
+    if (metric_ == DistanceMetric::COSINE) {
+        q_norm = query;
+        float sum_sq = 0.0f;
+        for (float x : q_norm) sum_sq += x * x;
+        if (sum_sq > 0.0f) {
+            float inv_norm = 1.0f / std::sqrt(sum_sq);
+            for (float& x : q_norm) x *= inv_norm;
+        }
+        q_ptr = &q_norm;
+    }
+
     // 1. Sample current_sample random indices efficiently
     std::unordered_set<uint32_t> sampled_indices;
     std::uniform_int_distribution<uint32_t> dist_gen(0, num_points - 1);
@@ -76,7 +89,7 @@ std::vector<SearchResult> RandomPointsInit::search(const std::vector<float>& que
     std::vector<SearchResult> results;
     results.reserve(current_sample);
     for (uint32_t idx : sampled_indices) {
-        float dist = compute_distance(dataset_[idx], query);
+        float dist = compute_distance(dataset_[idx], *q_ptr);
         results.push_back(SearchResult{idx, dist});
     }
     
@@ -142,7 +155,19 @@ size_t MedoidInit::get_index_size() const {
 }
 
 std::vector<SearchResult> MedoidInit::search(const std::vector<float>& query, size_t k) {
-    float dist = compute_distance(dataset_[medoid_index_], query);
+    std::vector<float> q_norm;
+    const std::vector<float>* q_ptr = &query;
+    if (metric_ == DistanceMetric::COSINE) {
+        q_norm = query;
+        float sum_sq = 0.0f;
+        for (float x : q_norm) sum_sq += x * x;
+        if (sum_sq > 0.0f) {
+            float inv_norm = 1.0f / std::sqrt(sum_sq);
+            for (float& x : q_norm) x *= inv_norm;
+        }
+        q_ptr = &q_norm;
+    }
+    float dist = compute_distance(dataset_[medoid_index_], *q_ptr);
     return {SearchResult{medoid_index_, dist}};
 }
 
