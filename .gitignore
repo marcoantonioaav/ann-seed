@@ -1,5 +1,9 @@
 /antigravity
 /build
 /results
+/results_synthetic
+/results_synthetic_dryrun
+/data_synthetic
+/data_synthetic_dryrun
 *.pyc
 *.so

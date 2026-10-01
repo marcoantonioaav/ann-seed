@@ -93,8 +93,6 @@ std::vector<SearchResult> RandomPointsInit::search(const std::vector<float>& que
         results.push_back(SearchResult{idx, dist});
     }
     
-    distance_computations_ += current_sample;
-    
     // 3. Sort by distance and return top k
     std::sort(results.begin(), results.end(), [](const SearchResult& a, const SearchResult& b) {
         return a.distance < b.distance;
