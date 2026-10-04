@@ -220,6 +220,87 @@ def compute_robust_series_limits(series, quantile_low=0.0, quantile_high=0.90, d
 
     return min_val, max_val
 
+def adjust_limits_to_visible_points(plotted_vals, lim_min, lim_max, default_min=None, default_max=None, max_allowed_gap_ratio=0.10, is_log=False):
+    """
+    Checks if there is a gap between visible points and the axis limits (lim_min, lim_max),
+    and tightens the limits closer to the visible point distribution to avoid out-of-focus plots.
+    Supports linear and log10 scale axes.
+    """
+    if not plotted_vals:
+        return lim_min, lim_max
+
+    if is_log:
+        valid_vals = [v for v in plotted_vals if v > 0]
+        if not valid_vals:
+            return lim_min, lim_max
+
+        visible_vals = [v for v in valid_vals if (lim_min is None or v >= lim_min * 0.999) and (lim_max is None or v <= lim_max * 1.001)]
+        if not visible_vals:
+            visible_vals = valid_vals
+
+        log_vis = np.log10(visible_vals)
+        vis_min_log = min(log_vis)
+        vis_max_log = max(log_vis)
+        vis_range_log = vis_max_log - vis_min_log
+
+        if vis_range_log <= 0:
+            vis_range_log = 0.5
+
+        new_min = lim_min
+        new_max = lim_max
+
+        if lim_min is not None and lim_min > 0:
+            lim_min_log = np.log10(lim_min)
+            left_gap = vis_min_log - lim_min_log
+            if left_gap > max_allowed_gap_ratio * vis_range_log:
+                adjusted_log = vis_min_log - 0.05 * vis_range_log
+                if default_min is not None and default_min > 0:
+                    adjusted_log = max(adjusted_log, np.log10(default_min))
+                new_min = 10 ** adjusted_log
+
+        if lim_max is not None and lim_max > 0:
+            lim_max_log = np.log10(lim_max)
+            right_gap = lim_max_log - vis_max_log
+            if right_gap > max_allowed_gap_ratio * vis_range_log:
+                adjusted_log = vis_max_log + 0.05 * vis_range_log
+                if default_max is not None and default_max > 0:
+                    adjusted_log = min(adjusted_log, np.log10(default_max))
+                new_max = 10 ** adjusted_log
+
+        return new_min, new_max
+    else:
+        visible_vals = [v for v in plotted_vals if (lim_min is None or v >= lim_min - 1e-9) and (lim_max is None or v <= lim_max + 1e-9)]
+        if not visible_vals:
+            visible_vals = plotted_vals
+
+        vis_min = min(visible_vals)
+        vis_max = max(visible_vals)
+        vis_range = vis_max - vis_min
+
+        if vis_range <= 0:
+            vis_range = abs(vis_min) if vis_min != 0 else 1.0
+
+        new_min = lim_min
+        new_max = lim_max
+
+        if lim_min is not None:
+            left_gap = vis_min - lim_min
+            if left_gap > max_allowed_gap_ratio * vis_range:
+                adjusted = vis_min - 0.05 * vis_range
+                if default_min is not None:
+                    adjusted = max(adjusted, default_min)
+                new_min = adjusted
+
+        if lim_max is not None:
+            right_gap = lim_max - vis_max
+            if right_gap > max_allowed_gap_ratio * vis_range:
+                adjusted = vis_max + 0.05 * vis_range
+                if default_max is not None:
+                    adjusted = min(adjusted, default_max)
+                new_max = adjusted
+
+        return new_min, new_max
+
 def generate_combined_metric_plots(all_scenario_dfs, metric_name, output_dir):
     """
     Generates paper-ready row plots:
@@ -272,6 +353,7 @@ def generate_combined_metric_plots(all_scenario_dfs, metric_name, output_dir):
         qps_series = [df['QPS'] for _, df in scenarios_data]
         ylim_min, ylim_max = compute_robust_series_limits(pd.concat(qps_series), quantile_low=0.01, quantile_high=0.99, is_log=True)
 
+        all_plotted_y_vals = []
         num_scenarios = len(scenarios_data)
         fig, axes = plt.subplots(1, num_scenarios, figsize=(3.4 * num_scenarios, 2.4), sharey=True)
         if num_scenarios == 1:
@@ -288,6 +370,7 @@ def generate_combined_metric_plots(all_scenario_dfs, metric_name, output_dir):
             else:
                 xlim_min, xlim_max = compute_robust_series_limits(df[metric_col], quantile_low=0.0, quantile_high=0.90, default_min=0.0)
 
+            plotted_x_vals = []
             for family in sorted_approaches:
                 subset = df[df['ApproachFamily'] == family]
                 if not subset.empty:
@@ -304,12 +387,35 @@ def generate_combined_metric_plots(all_scenario_dfs, metric_name, output_dir):
                             markersize=4.0,
                             linewidth=1.1
                         )
+                        plotted_x_vals.extend(pareto_subset[metric_col].dropna().tolist())
+                        all_plotted_y_vals.extend(pareto_subset['QPS'].dropna().tolist())
+
+            if plotted_x_vals:
+                def_min = 0.0 if (metric_col.startswith('Recall') or metric_col in ['Mean Distance', '1-NN Difference']) else None
+                def_max = 1.02 if metric_col.startswith('Recall') else None
+                xlim_min, xlim_max = adjust_limits_to_visible_points(
+                    plotted_x_vals, xlim_min, xlim_max, default_min=def_min, default_max=def_max
+                )
 
             ax.set_title(formatted_title, fontsize=8.5, fontweight='bold', pad=3)
             ax.set_yscale('log')
-            ax.set_ylim(ylim_min, ylim_max)
             if xlim_min is not None and xlim_max is not None:
                 ax.set_xlim(xlim_min, xlim_max)
+
+            ax.tick_params(axis='both', which='major', labelsize=7.5)
+            ax.grid(True, which='both', linestyle='--', alpha=0.4, linewidth=0.5)
+
+            ax.set_xlabel(metric_col, fontsize=8.0, labelpad=2)
+            if idx == 0:
+                ax.set_ylabel("QPS", fontsize=8.0, labelpad=2)
+
+        if all_plotted_y_vals:
+            ylim_min, ylim_max = adjust_limits_to_visible_points(
+                all_plotted_y_vals, ylim_min, ylim_max, is_log=True
+            )
+
+        for ax in axes:
+            ax.set_ylim(ylim_min, ylim_max)
 
             ax.tick_params(axis='both', which='major', labelsize=7.5)
             ax.grid(True, which='both', linestyle='--', alpha=0.4, linewidth=0.5)
