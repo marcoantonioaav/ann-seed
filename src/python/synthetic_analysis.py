@@ -355,7 +355,7 @@ def generate_combined_metric_plots(all_scenario_dfs, metric_name, output_dir):
 
         all_plotted_y_vals = []
         num_scenarios = len(scenarios_data)
-        fig, axes = plt.subplots(1, num_scenarios, figsize=(3.4 * num_scenarios, 2.4), sharey=True)
+        fig, axes = plt.subplots(1, num_scenarios, figsize=(4.0 * num_scenarios, 3.0), sharey=True)
         if num_scenarios == 1:
             axes = [axes]
 
@@ -384,8 +384,8 @@ def generate_combined_metric_plots(all_scenario_dfs, metric_name, output_dir):
                             linestyle=styles[family]['linestyle'],
                             color=styles[family]['color'],
                             label=family,
-                            markersize=4.0,
-                            linewidth=1.1
+                            markersize=6.0,
+                            linewidth=1.5
                         )
                         plotted_x_vals.extend(pareto_subset[metric_col].dropna().tolist())
                         all_plotted_y_vals.extend(pareto_subset['QPS'].dropna().tolist())
@@ -397,17 +397,18 @@ def generate_combined_metric_plots(all_scenario_dfs, metric_name, output_dir):
                     plotted_x_vals, xlim_min, xlim_max, default_min=def_min, default_max=def_max
                 )
 
-            ax.set_title(formatted_title, fontsize=8.5, fontweight='bold', pad=3)
+            ax.set_title(formatted_title, fontsize=13.0, fontweight='bold', pad=5)
             ax.set_yscale('log')
             if xlim_min is not None and xlim_max is not None:
                 ax.set_xlim(xlim_min, xlim_max)
 
-            ax.tick_params(axis='both', which='major', labelsize=7.5)
+            ax.tick_params(axis='both', which='major', labelsize=11.5)
+            ax.tick_params(axis='both', which='minor', labelsize=10.0)
             ax.grid(True, which='both', linestyle='--', alpha=0.4, linewidth=0.5)
 
-            ax.set_xlabel(metric_col, fontsize=8.0, labelpad=2)
+            ax.set_xlabel(metric_col, fontsize=13.0, labelpad=4)
             if idx == 0:
-                ax.set_ylabel("QPS", fontsize=8.0, labelpad=2)
+                ax.set_ylabel("QPS (log scale)", fontsize=13.0, labelpad=5)
 
         if all_plotted_y_vals:
             ylim_min, ylim_max = adjust_limits_to_visible_points(
@@ -416,13 +417,6 @@ def generate_combined_metric_plots(all_scenario_dfs, metric_name, output_dir):
 
         for ax in axes:
             ax.set_ylim(ylim_min, ylim_max)
-
-            ax.tick_params(axis='both', which='major', labelsize=7.5)
-            ax.grid(True, which='both', linestyle='--', alpha=0.4, linewidth=0.5)
-
-            ax.set_xlabel(metric_col, fontsize=8.0, labelpad=2)
-            if idx == 0:
-                ax.set_ylabel("QPS", fontsize=8.0, labelpad=2)
 
         unique_labels = {}
         for ax in axes:
@@ -437,16 +431,15 @@ def generate_combined_metric_plots(all_scenario_dfs, metric_name, output_dir):
                 unique_labels.values(),
                 unique_labels.keys(),
                 loc='upper center',
-                bbox_to_anchor=(0.5, 1.15),
+                bbox_to_anchor=(0.5, 1.18),
                 ncol=ncol,
-                fontsize=7.5,
+                fontsize=11.5,
                 frameon=True,
-                handletextpad=0.3,
-                columnspacing=0.8
+                handletextpad=0.5,
+                columnspacing=1.1
             )
 
-        plt.tight_layout()
-        plt.subplots_adjust(top=0.85, wspace=0.18)
+        plt.subplots_adjust(top=0.81, bottom=0.19, left=0.07, right=0.985, wspace=0.09)
         
         filename = f"plot_row_paper_{metric_name}_{metric_col.replace('@', '').replace(' ', '').lower()}_vs_qps.png"
         plt.savefig(os.path.join(plots_dir, filename), dpi=300, bbox_inches='tight')
