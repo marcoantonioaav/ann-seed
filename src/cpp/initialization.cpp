@@ -10,40 +10,22 @@
 #include <unordered_map>
 #include <memory>
 
-// Helper to get current Resident Set Size (RSS) in bytes
-size_t get_current_rss_bytes() {
-    std::ifstream file("/proc/self/status");
-    std::string line;
-    while (std::getline(file, line)) {
-        if (line.substr(0, 6) == "VmRSS:") {
-            size_t i = 7;
-            while (i < line.size() && !std::isdigit(line[i])) i++;
-            if (i < line.size()) {
-                size_t value = std::stoul(line.substr(i));
-                return value * 1024; // Convert kB to bytes
-            }
-        }
-    }
-    return 0;
-}
-
-// Helper to calculate vector of vectors memory
-size_t calculate_dataset_memory(const std::vector<std::vector<float>>& dataset) {
-    if (dataset.empty()) return 0;
-    size_t total = dataset.size() * sizeof(std::vector<float>);
-    total += dataset.size() * dataset[0].size() * sizeof(float);
-    return total;
-}
+// ---------------------------------------------------------
+// Random Points Baseline Implementation
+// ---------------------------------------------------------
 
 RandomPointsInit::RandomPointsInit(uint32_t seed, const std::string& metric) : gen_(seed) {
     if (metric == "cosine") metric_ = DistanceMetric::COSINE;
 }
 
 void RandomPointsInit::build_index() {
+    update_peak_rss();
 }
 
 size_t RandomPointsInit::get_memory_usage() const {
-    return calculate_dataset_memory(dataset_);
+    size_t dataset_mem = calculate_dataset_memory(dataset_);
+    size_t peak_delta = (peak_rss_ > rss_baseline_) ? (peak_rss_ - rss_baseline_) : 0;
+    return std::max(peak_delta, dataset_mem);
 }
 
 size_t RandomPointsInit::get_index_size() const {
@@ -78,14 +60,12 @@ std::vector<SearchResult> RandomPointsInit::search(const std::vector<float>& que
         q_ptr = &q_norm;
     }
 
-    // 1. Sample current_sample random indices efficiently
     std::unordered_set<uint32_t> sampled_indices;
     std::uniform_int_distribution<uint32_t> dist_gen(0, num_points - 1);
     while (sampled_indices.size() < current_sample) {
         sampled_indices.insert(dist_gen(gen_));
     }
     
-    // 2. Compute distances
     std::vector<SearchResult> results;
     results.reserve(current_sample);
     for (uint32_t idx : sampled_indices) {
@@ -93,7 +73,6 @@ std::vector<SearchResult> RandomPointsInit::search(const std::vector<float>& que
         results.push_back(SearchResult{idx, dist});
     }
     
-    // 3. Sort by distance and return top k
     std::sort(results.begin(), results.end(), [](const SearchResult& a, const SearchResult& b) {
         return a.distance < b.distance;
     });
@@ -105,18 +84,22 @@ std::vector<SearchResult> RandomPointsInit::search(const std::vector<float>& que
     return results;
 }
 
+// ---------------------------------------------------------
+// Medoid Baseline Implementation
+// ---------------------------------------------------------
+
 MedoidInit::MedoidInit(const std::string& metric) : medoid_index_(0) {
     if (metric == "cosine") metric_ = DistanceMetric::COSINE;
 }
 
 void MedoidInit::build_index() {
+    update_peak_rss();
     if (dataset_.empty()) {
         throw std::invalid_argument("Dataset cannot be empty.");
     }
     size_t num_points = dataset_.size();
     size_t dims = dataset_[0].size();
     
-    // Calculate centroid
     std::vector<float> centroid(dims, 0.0f);
     for (const auto& point : dataset_) {
         for (size_t i = 0; i < dims; ++i) {
@@ -127,7 +110,6 @@ void MedoidInit::build_index() {
         centroid[i] /= num_points;
     }
     
-    // Find point closest to centroid
     float min_dist_sq = std::numeric_limits<float>::max();
     medoid_index_ = 0;
     
@@ -142,10 +124,13 @@ void MedoidInit::build_index() {
             medoid_index_ = i;
         }
     }
+    update_peak_rss();
 }
 
 size_t MedoidInit::get_memory_usage() const {
-    return calculate_dataset_memory(dataset_) + sizeof(medoid_index_);
+    size_t dataset_mem = calculate_dataset_memory(dataset_) + sizeof(medoid_index_);
+    size_t peak_delta = (peak_rss_ > rss_baseline_) ? (peak_rss_ - rss_baseline_) : 0;
+    return std::max(peak_delta, dataset_mem);
 }
 
 size_t MedoidInit::get_index_size() const {
@@ -190,7 +175,7 @@ FlannKDTreeInit::~FlannKDTreeInit() {
 }
 
 void FlannKDTreeInit::build_index() {
-    size_t rss_start = get_current_rss_bytes();
+    update_peak_rss();
     
     if (dataset_.empty()) {
         throw std::invalid_argument("Dataset cannot be empty.");
@@ -207,6 +192,7 @@ void FlannKDTreeInit::build_index() {
     }
 
     state_->flann_dataset = std::make_unique<flann::Matrix<float>>(data_ptr, num_points, dims);
+    update_peak_rss();
     
     flann::KDTreeIndexParams params(num_trees_);
     state_->index = std::make_unique<flann::Index<flann::L2<float>>>(*state_->flann_dataset, params);
@@ -215,11 +201,7 @@ void FlannKDTreeInit::build_index() {
     state_->index->buildIndex();
     size_t rss_after_index = get_current_rss_bytes();
 
-    size_t rss_end = get_current_rss_bytes();
-    
-    // Total footprint during indexing
-    memory_usage_ = (rss_end > rss_start) ? (rss_end - rss_start) : calculate_dataset_memory(dataset_);
-    // Actual index structure size
+    update_peak_rss();
     index_size_ = (rss_after_index > rss_before_index) ? (rss_after_index - rss_before_index) : 0;
 }
 
@@ -240,9 +222,6 @@ std::vector<SearchResult> FlannKDTreeInit::search(const std::vector<float>& quer
     flann::SearchParams params(checks_);
     state_->index->knnSearch(flann_query, flann_indices, flann_dists, k, params);
     
-    // Since the searching process on KD-trees only make actual distance computations when 
-    // leaf nodes are visited, the number of leaf nodes visited (checks_) is reported as the 
-    // number of distance computations performed.
     distance_computations_ += checks_;
 
     std::vector<SearchResult> results;
@@ -258,7 +237,9 @@ std::vector<SearchResult> FlannKDTreeInit::search(const std::vector<float>& quer
 }
 
 size_t FlannKDTreeInit::get_memory_usage() const {
-    return memory_usage_;
+    size_t dataset_mem = calculate_dataset_memory(dataset_);
+    size_t peak_delta = (peak_rss_ > rss_baseline_) ? (peak_rss_ - rss_baseline_) : 0;
+    return std::max(peak_delta, dataset_mem + index_size_);
 }
 
 size_t FlannKDTreeInit::get_index_size() const {
@@ -279,7 +260,7 @@ FlannKMeansInit::~FlannKMeansInit() {
 }
 
 void FlannKMeansInit::build_index() {
-    size_t rss_start = get_current_rss_bytes();
+    update_peak_rss();
     
     if (dataset_.empty()) {
         throw std::invalid_argument("Dataset cannot be empty.");
@@ -297,6 +278,7 @@ void FlannKMeansInit::build_index() {
 
     state_->flann_dataset = std::make_unique<flann::Matrix<float>>(data_ptr, num_points, dims);
     state_->kmeans_indexes.clear();
+    update_peak_rss();
     
     size_t rss_before_index = get_current_rss_bytes();
     for (int t = 0; t < num_trees_; ++t) {
@@ -307,9 +289,7 @@ void FlannKMeansInit::build_index() {
     }
     size_t rss_after_index = get_current_rss_bytes();
 
-    size_t rss_end = get_current_rss_bytes();
-    
-    memory_usage_ = (rss_end > rss_start) ? (rss_end - rss_start) : calculate_dataset_memory(dataset_);
+    update_peak_rss();
     index_size_ = (rss_after_index > rss_before_index) ? (rss_after_index - rss_before_index) : 0;
 }
 
@@ -363,7 +343,9 @@ std::vector<SearchResult> FlannKMeansInit::search(const std::vector<float>& quer
 }
 
 size_t FlannKMeansInit::get_memory_usage() const {
-    return memory_usage_;
+    size_t dataset_mem = calculate_dataset_memory(dataset_);
+    size_t peak_delta = (peak_rss_ > rss_baseline_) ? (peak_rss_ - rss_baseline_) : 0;
+    return std::max(peak_delta, dataset_mem + index_size_);
 }
 
 size_t FlannKMeansInit::get_index_size() const {
@@ -413,7 +395,7 @@ VPTreeInit::~VPTreeInit() {
 }
 
 void VPTreeInit::build_index() {
-    size_t rss_start = get_current_rss_bytes();
+    update_peak_rss();
 
     if (dataset_.empty()) {
         throw std::invalid_argument("Dataset cannot be empty.");
@@ -428,13 +410,13 @@ void VPTreeInit::build_index() {
     for (size_t i = 0; i < num_points; ++i) {
         state_->data.push_back(new similarity::Object(i, -1, dims * sizeof(float), dataset_[i].data()));
     }
+    update_peak_rss();
 
     state_->index = similarity::MethodFactoryRegistry<float>::Instance().CreateMethod(false, "vptree", space_name, *state_->space, state_->data);
 
     size_t rss_before_index = get_current_rss_bytes();
     state_->index->CreateIndex(similarity::AnyParams());
     
-    // Set approximation parameters
     state_->index->SetQueryTimeParams(similarity::AnyParams({
         "maxLeavesToVisit=" + std::to_string(max_leaves_to_visit_),
         "alphaLeft=" + std::to_string(alpha_left_),
@@ -442,15 +424,9 @@ void VPTreeInit::build_index() {
     }));
     
     size_t rss_after_index = get_current_rss_bytes();
+    update_peak_rss();
 
-    size_t rss_end = get_current_rss_bytes();
-    if (rss_end > rss_start) {
-        index_size_ = (rss_end > rss_before_index) ? (rss_end - rss_before_index) : 0;
-        memory_usage_ = rss_end - rss_start;
-    } else {
-        memory_usage_ = calculate_dataset_memory(dataset_);
-        index_size_ = 0;
-    }
+    index_size_ = (rss_after_index > rss_before_index) ? (rss_after_index - rss_before_index) : 0;
 }
 
 void VPTreeInit::set_query_time_params(const std::map<std::string, std::string>& params) {
@@ -478,7 +454,6 @@ std::vector<SearchResult> VPTreeInit::search(const std::vector<float>& query, si
     std::vector<SearchResult> results;
     similarity::KNNQueue<float>* res_queue = knn_query.Result()->Clone();
     
-    // The queue extracts in max-to-min order (largest distance first), so we read and reverse
     std::vector<SearchResult> temp_results;
     while (!res_queue->Empty()) {
         temp_results.push_back(SearchResult{(uint32_t)res_queue->TopObject()->id(), res_queue->TopDistance()});
@@ -492,7 +467,9 @@ std::vector<SearchResult> VPTreeInit::search(const std::vector<float>& query, si
 }
 
 size_t VPTreeInit::get_memory_usage() const {
-    return memory_usage_;
+    size_t dataset_mem = calculate_dataset_memory(dataset_);
+    size_t peak_delta = (peak_rss_ > rss_baseline_) ? (peak_rss_ - rss_baseline_) : 0;
+    return std::max(peak_delta, dataset_mem + index_size_);
 }
 
 size_t VPTreeInit::get_index_size() const {
@@ -502,7 +479,6 @@ size_t VPTreeInit::get_index_size() const {
 // ---------------------------------------------------------
 // NMSLIB Stacked NSW Implementation
 // ---------------------------------------------------------
-// Reuses NmslibState (defined above in the VP-Tree section).
 
 StackedNSWInit::StackedNSWInit(int M, int ef_construction, int ef, const std::string& metric)
     : M_(M), ef_construction_(ef_construction), ef_(ef), state_(new NmslibState()) {
@@ -525,7 +501,7 @@ StackedNSWInit::~StackedNSWInit() {
 }
 
 void StackedNSWInit::build_index() {
-    size_t rss_start = get_current_rss_bytes();
+    update_peak_rss();
 
     if (dataset_.empty()) {
         throw std::invalid_argument("Dataset cannot be empty.");
@@ -540,13 +516,12 @@ void StackedNSWInit::build_index() {
     for (size_t i = 0; i < num_points; ++i) {
         state_->data.push_back(new similarity::Object(i, -1, dims * sizeof(float), dataset_[i].data()));
     }
+    update_peak_rss();
 
     state_->index = similarity::MethodFactoryRegistry<float>::Instance().CreateMethod(
         false, "hnsw", space_name, *state_->space, state_->data);
 
     size_t rss_before_index = get_current_rss_bytes();
-    // skip_optimized_index=1 forces the unoptimized HnswNode structure, giving
-    // correct access to per-layer links during the modified layer-1 search.
     state_->index->CreateIndex(similarity::AnyParams({
         "M=" + std::to_string(M_),
         "efConstruction=" + std::to_string(ef_construction_),
@@ -554,19 +529,12 @@ void StackedNSWInit::build_index() {
     }));
     size_t rss_after_index = get_current_rss_bytes();
 
-    // Set search-time ef
     state_->index->SetQueryTimeParams(similarity::AnyParams({
         "ef=" + std::to_string(ef_)
     }));
 
-    size_t rss_end = get_current_rss_bytes();
-    if (rss_end > rss_start) {
-        index_size_ = (rss_end > rss_before_index) ? (rss_end - rss_before_index) : 0;
-        memory_usage_ = rss_end - rss_start;
-    } else {
-        memory_usage_ = calculate_dataset_memory(dataset_);
-        index_size_ = 0;
-    }
+    update_peak_rss();
+    index_size_ = (rss_after_index > rss_before_index) ? (rss_after_index - rss_before_index) : 0;
 }
 
 void StackedNSWInit::set_query_time_params(const std::map<std::string, std::string>& params) {
@@ -601,7 +569,9 @@ std::vector<SearchResult> StackedNSWInit::search(const std::vector<float>& query
 }
 
 size_t StackedNSWInit::get_memory_usage() const {
-    return memory_usage_;
+    size_t dataset_mem = calculate_dataset_memory(dataset_);
+    size_t peak_delta = (peak_rss_ > rss_baseline_) ? (peak_rss_ - rss_baseline_) : 0;
+    return std::max(peak_delta, dataset_mem + index_size_);
 }
 
 size_t StackedNSWInit::get_index_size() const {
@@ -630,7 +600,7 @@ LSHInit::~LSHInit() {
 }
 
 void LSHInit::build_index() {
-    size_t rss_start = get_current_rss_bytes();
+    update_peak_rss();
     if (dataset_.empty()) {
         throw std::invalid_argument("Dataset cannot be empty.");
     }
@@ -642,6 +612,7 @@ void LSHInit::build_index() {
     for (size_t i = 0; i < num_points; ++i) {
         state_->falconn_data[i] = Eigen::Map<const falconn::DenseVector<float>>(dataset_[i].data(), dims);
     }
+    update_peak_rss();
 
     falconn::LSHConstructionParameters params;
     params.dimension = dims;
@@ -665,23 +636,14 @@ void LSHInit::build_index() {
     }
     size_t rss_after_index = get_current_rss_bytes();
 
-    size_t rss_end = get_current_rss_bytes();
-    if (rss_end > rss_start) {
-        index_size_ = (rss_end > rss_before_index) ? (rss_end - rss_before_index) : 0;
-        memory_usage_ = rss_end - rss_start;
-    } else {
-        memory_usage_ = calculate_dataset_memory(dataset_);
-        index_size_ = 0;
-    }
+    update_peak_rss();
+    index_size_ = (rss_after_index > rss_before_index) ? (rss_after_index - rss_before_index) : 0;
 }
 
 void LSHInit::set_query_time_params(const std::map<std::string, std::string>& params) {
     if (params.count("num_probes")) {
         num_probes_ = std::stoi(params.at("num_probes"));
         if (state_->query_obj) {
-            // FALCONN does not expose set_num_probes on LSHNearestNeighborTable,
-            // but the query object has it (or we can just reconstruct it).
-            // Actually, we can just reconstruct it to be safe and reset stats.
             state_->query_obj = state_->table->construct_query_object(num_probes_);
             state_->prev_total_comps = 0;
         }
@@ -716,7 +678,9 @@ std::vector<SearchResult> LSHInit::search(const std::vector<float>& query, size_
 }
 
 size_t LSHInit::get_memory_usage() const {
-    return memory_usage_;
+    size_t dataset_mem = calculate_dataset_memory(dataset_);
+    size_t peak_delta = (peak_rss_ > rss_baseline_) ? (peak_rss_ - rss_baseline_) : 0;
+    return std::max(peak_delta, dataset_mem + index_size_);
 }
 
 size_t LSHInit::get_index_size() const {
@@ -741,34 +705,21 @@ HVSInit::~HVSInit() {
 }
 
 void HVSInit::build_index() {
-    size_t rss_start = get_current_rss_bytes();
+    update_peak_rss();
     if (dataset_.empty()) {
         throw std::invalid_argument("Dataset cannot be empty.");
     }
-
-    size_t num_points = dataset_.size();
-    size_t dims = dataset_[0].size();
 
     hvs::MetricType hvs_metric = (metric_ == DistanceMetric::COSINE) ? hvs::MetricType::COSINE : hvs::MetricType::L2;
 
     if (index_) delete index_;
     index_ = new hvs::HVSIndex(levels_, delta_, hvs_metric);
 
-    size_t rss_before_index = get_current_rss_bytes();
     bool success = index_->build(dataset_);
     if (!success) {
         throw std::runtime_error("Failed to build HVS index.");
     }
-    size_t rss_after_index = get_current_rss_bytes();
-
-    size_t rss_end = get_current_rss_bytes();
-    if (rss_end > rss_start) {
-        index_size_ = (rss_end > rss_before_index) ? (rss_end - rss_before_index) : 0;
-        memory_usage_ = rss_end - rss_start;
-    } else {
-        memory_usage_ = calculate_dataset_memory(dataset_);
-        index_size_ = 0;
-    }
+    update_peak_rss();
 }
 
 void HVSInit::set_query_time_params(const std::map<std::string, std::string>& params) {
@@ -798,11 +749,16 @@ std::vector<SearchResult> HVSInit::search(const std::vector<float>& query, size_
 }
 
 size_t HVSInit::get_memory_usage() const {
-    return memory_usage_;
+    size_t dataset_mem = calculate_dataset_memory(dataset_);
+    size_t peak_delta = (peak_rss_ > rss_baseline_) ? (peak_rss_ - rss_baseline_) : 0;
+    return std::max(peak_delta, dataset_mem + get_index_size());
 }
 
 size_t HVSInit::get_index_size() const {
-    return index_size_;
+    if (index_) {
+        return index_->get_index_size();
+    }
+    return 0;
 }
 
 // ---------------------------------------------------------
@@ -823,7 +779,7 @@ LSBTreeInit::~LSBTreeInit() {
 }
 
 void LSBTreeInit::build_index() {
-    size_t rss_start = get_current_rss_bytes();
+    update_peak_rss();
     if (dataset_.empty()) {
         throw std::invalid_argument("Dataset cannot be empty.");
     }
@@ -843,7 +799,6 @@ void LSBTreeInit::build_index() {
     if (tree_) delete tree_;
     tree_ = new lsb::LSBTree(params, lsb_metric);
 
-    // Flatten dataset into flat_dataset_ member variable so dataset_ptr_ remains valid during querying
     flat_dataset_.resize(num_points * dims);
     if (metric_ == DistanceMetric::COSINE) {
         for (size_t i = 0; i < num_points; ++i) {
@@ -854,23 +809,14 @@ void LSBTreeInit::build_index() {
             std::copy(dataset_[i].begin(), dataset_[i].end(), flat_dataset_.data() + i * dims);
         }
     }
+    update_peak_rss(); // Captures peak when both dataset_ and flat_dataset_ exist in memory
 
     // Free original non-contiguous 2D dataset_ vectors
     dataset_.clear();
     dataset_.shrink_to_fit();
 
-    size_t rss_before_index = get_current_rss_bytes();
     tree_->fit(flat_dataset_.data(), params.N, params.dim, true);
-    size_t rss_after_index = get_current_rss_bytes();
-
-    size_t rss_end = get_current_rss_bytes();
-    if (rss_end > rss_start) {
-        index_size_ = (rss_end > rss_before_index) ? (rss_end - rss_before_index) : 0;
-        memory_usage_ = rss_end - rss_start;
-    } else {
-        memory_usage_ = flat_dataset_.size() * sizeof(float);
-        index_size_ = 0;
-    }
+    update_peak_rss();
 }
 
 void LSBTreeInit::set_query_time_params(const std::map<std::string, std::string>& params) {
@@ -900,11 +846,16 @@ std::vector<SearchResult> LSBTreeInit::search(const std::vector<float>& query, s
 }
 
 size_t LSBTreeInit::get_memory_usage() const {
-    return memory_usage_;
+    size_t dataset_mem = flat_dataset_.size() * sizeof(float);
+    size_t peak_delta = (peak_rss_ > rss_baseline_) ? (peak_rss_ - rss_baseline_) : 0;
+    return std::max(peak_delta, dataset_mem + get_index_size());
 }
 
 size_t LSBTreeInit::get_index_size() const {
-    return index_size_;
+    if (tree_) {
+        return tree_->get_index_size();
+    }
+    return 0;
 }
 
 

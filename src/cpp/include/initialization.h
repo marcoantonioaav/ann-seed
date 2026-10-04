@@ -7,6 +7,8 @@
 #include <unordered_set>
 #include <string>
 #include <map>
+#include <fstream>
+#include <algorithm>
 
 struct SearchResult {
     uint32_t index;
@@ -15,13 +17,47 @@ struct SearchResult {
 
 enum class DistanceMetric { EUCLIDEAN, COSINE };
 
+// Helper to get current Resident Set Size (RSS) in bytes
+inline size_t get_current_rss_bytes() {
+    std::ifstream file("/proc/self/status");
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.substr(0, 6) == "VmRSS:") {
+            size_t i = 7;
+            while (i < line.size() && !std::isdigit(line[i])) i++;
+            if (i < line.size()) {
+                size_t value = std::stoul(line.substr(i));
+                return value * 1024; // Convert kB to bytes
+            }
+        }
+    }
+    return 0;
+}
+
+// Helper to calculate vector of vectors memory
+inline size_t calculate_dataset_memory(const std::vector<std::vector<float>>& dataset) {
+    if (dataset.empty()) return 0;
+    size_t total = dataset.size() * sizeof(std::vector<float>);
+    total += dataset.size() * dataset[0].size() * sizeof(float);
+    return total;
+}
+
 class InitializationApproach {
 protected:
     mutable size_t distance_computations_ = 0;
     mutable size_t memory_usage_ = 0;
     mutable size_t index_size_ = 0;
+    mutable size_t rss_baseline_ = 0;
+    mutable size_t peak_rss_ = 0;
     std::vector<std::vector<float>> dataset_;
     DistanceMetric metric_ = DistanceMetric::EUCLIDEAN;
+
+    void update_peak_rss() const {
+        size_t current_rss = get_current_rss_bytes();
+        if (current_rss > peak_rss_) {
+            peak_rss_ = current_rss;
+        }
+    }
 
     float compute_l2_distance(const std::vector<float>& v1, const std::vector<float>& v2) const {
         distance_computations_++;
@@ -54,7 +90,9 @@ public:
     virtual ~InitializationApproach() = default;
     
     virtual void build(const std::vector<std::vector<float>>& dataset) {
+        if (rss_baseline_ == 0) rss_baseline_ = get_current_rss_bytes();
         dataset_ = dataset;
+        update_peak_rss();
         if (metric_ == DistanceMetric::COSINE) {
             for (auto& vec : dataset_) {
                 float sum_sq = 0.0f;
@@ -66,10 +104,13 @@ public:
             }
         }
         build_index();
+        update_peak_rss();
     }
     
     virtual void add_items(const std::vector<std::vector<float>>& items) {
+        if (rss_baseline_ == 0) rss_baseline_ = get_current_rss_bytes();
         dataset_.insert(dataset_.end(), items.begin(), items.end());
+        update_peak_rss();
     }
     
     virtual void build_index() = 0;
